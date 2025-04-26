@@ -36,6 +36,12 @@
     let silenceStart = null;
     const silenceThreshold = 2000; // ms
     const volumeThreshold = 0.1; // adjust sensitivity
+    if (!sessionStorage.getItem('sessionId')) {
+      sessionStorage.setItem('sessionId', crypto.randomUUID());
+    }
+    const sessionId = sessionStorage.getItem('sessionId');
+    console.log('Session ID:', sessionId);
+
     fetch('https://api.ipify.org?format=json')
 	    .then(response => response.json())
 	    .then(data => { userIp = data.ip; })
@@ -62,7 +68,7 @@
         const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
         const formData = new FormData();
         formData.append('audio', audioBlob, 'recording.wav');
-	formData.append('ip_address', userIp)
+	formData.append('ip_address', sessionId)
 
 	audioPlaying = true;
         try {
