@@ -80,6 +80,10 @@
 	      audioPlaying = true;
               audio.play();
             });
+	    audio.addEventListener('ended', () => {
+	      console.log('🔊 Playback finished.');
+	      audioPlaying = false; // ✅ Allow recording again
+	    });
             audio.load();
           } else {
             console.error('Error processing audio.');
