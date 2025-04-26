@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voice Visualizer</title>
+  <style>
+    body {
+      background: black;
+      margin: 0;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      background: black;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="visualizer"></canvas>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let stream;
+    let audioContext;
+    let analyser;
+    let dataArray;
+    let recording = false;
+    let silenceStart = null;
+    const silenceThreshold = 2000; // ms
+    const volumeThreshold = 0.1; // adjust sensitivity
+
+    async function init() {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(stream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      dataArray = new Uint8Array(analyser.fftSize);
+
+      mediaRecorder = new MediaRecorder(stream);
+
+      mediaRecorder.ondataavailable = event => {
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.wav');
+
+        try {
+          const response = await fetch('https://205e-73-97-179-17.ngrok-free.app/process_audio', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (response.ok) {
+            const audioBlobResponse = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlobResponse);
+
+            const audio = new Audio();
+            audio.src = audioUrl;
+            audio.addEventListener('canplaythrough', () => {
+              audio.play();
+            });
+            audio.load();
+          } else {
+            console.error('Error processing audio.');
+          }
+        } catch (error) {
+          console.error('Error sending audio:', error);
+        }
+
+        audioChunks = [];
+      };
+
+      listen();
+      visualize();
+    }
+
+    function listen() {
+      setInterval(() => {
+        analyser.getByteTimeDomainData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          let normalized = (dataArray[i] - 128) / 128;
+          sum += normalized * normalized;
+        }
+        let volume = Math.sqrt(sum / dataArray.length);
+
+        if (volume > volumeThreshold) {
+          if (!recording) {
+            console.log('🎙️ Voice detected. Start recording...');
+            recording = true;
+            mediaRecorder.start();
+          }
+          silenceStart = null;
+        } else {
+          if (recording) {
+            if (silenceStart === null) {
+              silenceStart = Date.now();
+            } else if (Date.now() - silenceStart > silenceThreshold) {
+              console.log('🔇 Silence detected. Stop recording.');
+              mediaRecorder.stop();
+              recording = false;
+              silenceStart = null;
+            }
+          }
+        }
+      }, 100); // Check every 100ms
+    }
+
+    function visualize() {
+      const canvas = document.getElementById('visualizer');
+      const canvasCtx = canvas.getContext('2d');
+
+      function draw() {
+        requestAnimationFrame(draw);
+
+        analyser.getByteTimeDomainData(dataArray);
+
+        canvasCtx.fillStyle = 'black';
+        canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+        canvasCtx.lineWidth = 2;
+        canvasCtx.strokeStyle = 'aqua';
+
+        canvasCtx.beginPath();
+
+        let sliceWidth = canvas.width / dataArray.length;
+        let x = 0;
+
+        for (let i = 0; i < dataArray.length; i++) {
+          let v = dataArray[i] / 128.0;
+          let y = v * canvas.height / 2;
+
+          if (i === 0) {
+            canvasCtx.moveTo(x, y);
+          } else {
+            canvasCtx.lineTo(x, y);
+          }
+
+          x += sliceWidth;
+        }
+
+        canvasCtx.lineTo(canvas.width, canvas.height / 2);
+        canvasCtx.stroke();
+      }
+
+      draw();
+    }
+
+    init();
+  </script>
+</body>
+</html>
+
